@@ -1,36 +1,58 @@
+import os
+from pathlib import Path
+
 import streamlit as st
 import pandas as pd
 import altair as alt
 from pymongo import MongoClient
 
-# Connect to MongoDB Altas
-url = "mongodb+srv://mrafi2_db_user:RafiMongo123@universitycluster.wggrv6j.mongodb.net/?retryWrites=true&w=majority"
-client = MongoClient(url)
-db = client["health_data"]
+st.set_page_config(page_title="Health Analytics Dashboard", layout="wide")
 
-# Loading into data frames
-def get_df(collection):
-    cursor = db[collection].find({})
-    df = pd.DataFrame(list(cursor))
-    if "_id" in df.columns:
-        df = df.drop(columns=["_id"])
-    return df
-
-daily_activity = get_df("daily_activity")
-sleep_day = get_df("sleep_day")
-physiologicals_rafi = get_df("physiologicals_rafi")
-sleeps_rafi = get_df("sleeps_rafi")
-workouts_rafi = get_df("workouts_rafi")
+DATA_DIR = Path(__file__).parent / "data"
+SOURCES = {
+    "daily_activity": ["peoples_data/daily_activity_1.csv", "peoples_data/daily_activity_2.csv"],
+    "sleep_day": ["peoples_data/sleep_day.csv"],
+    "physiologicals_rafi": ["rafi_data/physiologicals_rafi.csv"],
+    "sleeps_rafi": ["rafi_data/sleeps_rafi.csv"],
+    "workouts_rafi": ["rafi_data/workouts_rafi.csv"],
+}
 
 
-# Convert all date columns to clean date-only format and remove time
-for df in [daily_activity, sleep_day, physiologicals_rafi, sleeps_rafi, workouts_rafi]:
+def mongo_uri():
+    try:
+        return st.secrets["MONGO_URI"]
+    except Exception:
+        return os.getenv("MONGO_URI")
+
+
+@st.cache_data(ttl=3600, show_spinner="Loading data...")
+def load_all():
+    """Read from MongoDB Atlas; fall back to bundled CSVs if it is unreachable."""
+    uri = mongo_uri()
+    if uri:
+        try:
+            db = MongoClient(uri, serverSelectionTimeoutMS=5000)["health_data"]
+            dfs = {c: pd.DataFrame(list(db[c].find({}, {"_id": 0}))) for c in SOURCES}
+            if all(not d.empty for d in dfs.values()):
+                return dfs, "MongoDB Atlas"
+        except Exception:
+            pass
+    dfs = {
+        c: pd.concat([pd.read_csv(DATA_DIR / f, encoding="utf-8-sig") for f in files], ignore_index=True)
+        for c, files in SOURCES.items()
+    }
+    return dfs, "bundled CSV files"
+
+
+dfs, data_source = load_all()
+for df in dfs.values():
+    df.columns = df.columns.str.strip()
     for col in df.columns:
         if "date" in col.lower():
-            try:
-                df[col] = pd.to_datetime(df[col]).dt.date
-            except:
-                pass
+            df[col] = pd.to_datetime(df[col], errors="coerce").dt.date
+
+daily_activity, sleep_day = dfs["daily_activity"], dfs["sleep_day"]
+physiologicals_rafi, sleeps_rafi, workouts_rafi = dfs["physiologicals_rafi"], dfs["sleeps_rafi"], dfs["workouts_rafi"]
 
 
 # Streamlit Layout
@@ -46,7 +68,7 @@ st.markdown(
     """,
     unsafe_allow_html=True
 )
-st.markdown("<br>", unsafe_allow_html=True)
+st.caption(f"Data source: {data_source}")
 
 # All the Tabs
 tabs = st.tabs(["Project Description", "Fitbit Activity", "Fitbit Sleep Activity", "WHOOP Activity", "WHOOP Sleep Activity", "Comparisons"])
@@ -155,7 +177,7 @@ with tabs[1]:
 
     # User Selector
     user_ids = sorted(daily_activity["Id"].unique())
-    selected_user = st.selectbox("Select User ID:", user_ids)
+    selected_user = st.selectbox("Select User ID:", user_ids, key="activity_user")
 
     # Filter data for selected user
     user_df = daily_activity[daily_activity["Id"] == selected_user].reset_index(drop=True)
@@ -315,7 +337,7 @@ with tabs[2]:
 
     # User Selector
     user_ids = sorted(sleep_day["Id"].unique())
-    selected_user = st.selectbox("Select User ID:", user_ids)
+    selected_user = st.selectbox("Select User ID:", user_ids, key="sleep_user")
 
     # Filter for selected user
     user_sleep = sleep_day[sleep_day["Id"] == selected_user].copy()
@@ -813,11 +835,12 @@ with tabs[4]:
 
     # Sleep Duration Distribution
     st.subheader("Distribution of Sleep Duration")
+    df["SleepDuration"] = df["Light sleep duration (min)"] + df["Deep duration (min)"] + df["REM duration (min)"]
     sleep_hist = (
         alt.Chart(df)
         .mark_bar(color="#4BA3C3")
         .encode(
-            x=alt.X("Sleep need (min):Q", bin=alt.Bin(maxbins=12), title="Sleep Duration (min)"),
+            x=alt.X("SleepDuration:Q", bin=alt.Bin(maxbins=12), title="Sleep Duration (min)"),
             y=alt.Y("count()", title="Count of Nights", axis=alt.Axis(format="d")),
             tooltip=["count()"]
         )

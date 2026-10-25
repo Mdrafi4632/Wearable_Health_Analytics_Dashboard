@@ -1,37 +1,28 @@
+import os
+from pathlib import Path
+
 import pandas as pd
 from pymongo import MongoClient
-from datetime import datetime
 
-# Connect to MongoDB
-url = "mongodb+srv://mrafi2_db_user:RafiMongo123@universitycluster.wggrv6j.mongodb.net/?retryWrites=true&w=majority"
-client = MongoClient(url)
-db = client["health_data"]
+# Set MONGO_URI as an environment variable -- never hard-code it.
+db = MongoClient(os.environ["MONGO_URI"])["health_data"]
+DATA = Path(__file__).parent / "data"
 
-print("Connected to MongoDB!")
+SOURCES = {
+    "daily_activity": ["peoples_data/daily_activity_1.csv", "peoples_data/daily_activity_2.csv"],
+    "sleep_day": ["peoples_data/sleep_day.csv"],
+    "physiologicals_rafi": ["rafi_data/physiologicals_rafi.csv"],
+    "sleeps_rafi": ["rafi_data/sleeps_rafi.csv"],
+    "workouts_rafi": ["rafi_data/workouts_rafi.csv"],
+}
 
-# Function to import CSV data
-def import_csv(csv_path, collection_name):
-    df = pd.read_csv(csv_path)
-
-    # Convert date columns
+for name, files in SOURCES.items():
+    df = pd.concat([pd.read_csv(DATA / f, encoding="utf-8-sig") for f in files], ignore_index=True)
+    df.columns = df.columns.str.strip()
     for col in df.columns:
         if "date" in col.lower():
             df[col] = pd.to_datetime(df[col], errors="coerce")
-
-    # Convert null to None
-    df = df.where(pd.notnull(df), None)
-
-    records = df.to_dict(orient="records")
-    db[collection_name].insert_many(records)
-
-    print(f"Inserted {len(records)} documents into '{collection_name}'")
-
-# Fitbit Data
-import_csv("data/peoples_data/daily_activity_1.csv", "daily_activity")
-import_csv("data/peoples_data/daily_activity_2.csv", "daily_activity")
-import_csv("data/peoples_data/sleep_day.csv", "sleep_day")
-
-# Whoop Data
-import_csv("data/rafi_data/physiologicals_rafi.csv", "physiologicals_rafi")
-import_csv("data/rafi_data/sleeps_rafi.csv", "sleeps_rafi")
-import_csv("data/rafi_data/workouts_rafi.csv", "workouts_rafi")
+    df = df.astype(object).where(df.notna(), None)
+    db[name].drop()  # re-runnable: replace instead of duplicating
+    db[name].insert_many(df.to_dict(orient="records"))
+    print(f"Loaded {len(df)} documents into '{name}'")
