@@ -85,7 +85,10 @@ st.markdown("""<style>
 .stTabs [role="tablist"]{justify-content:safe center}
 .stTabs .react-aria-SelectionIndicator,.stTabs [data-baseweb="tab-highlight"]{background-color:#C6F432 !important}
 .stTabs [aria-selected="true"] p{color:#C6F432}
-.stTabs [role="tab"] p{font:600 15px 'Barlow Condensed','Arial Narrow',sans-serif;letter-spacing:.12em;text-transform:uppercase}
+.stTabs [role="tablist"]{gap:32px}
+.stTabs [role="tab"] p{font:500 15px 'Inter',sans-serif;letter-spacing:0;text-transform:none}
+.stTabs [role="tab"]{outline:none !important;box-shadow:none !important}
+.stTabs [role="tab"]:focus-visible{outline:2px solid #C6F432 !important;outline-offset:4px;border-radius:4px}
 </style>""", unsafe_allow_html=True)
 
 def stat_row(items):
