@@ -64,9 +64,9 @@ st.markdown("""<style>
 .topbar{display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;font:600 13px 'Barlow Condensed','Arial Narrow',sans-serif;letter-spacing:.18em;text-transform:uppercase;color:#8A9099;border-bottom:1px solid #1E232B;padding-bottom:12px}
 .topbar b{color:#F2F4F7}.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#C6F432;margin-right:8px}
 .eyebrow{font:600 14px 'Barlow Condensed','Arial Narrow',sans-serif;letter-spacing:.25em;color:#C6F432;text-transform:uppercase;margin:32px 0 10px}
-.hero{font:800 clamp(44px,7.5vw,92px)/.92 'Barlow Condensed','Arial Narrow',sans-serif;text-transform:uppercase;color:#F2F4F7;margin:0}
+.hero{font:800 clamp(44px,7.5vw,92px)/.92 'Barlow Condensed','Arial Narrow',sans-serif;text-transform:uppercase;color:#F2F4F7;margin:36px 0 0}
 .hero span{color:#C6F432}
-.lede{color:#8A9099;font:400 17px/1.6 'Inter';max-width:640px;margin:20px 0 36px}
+.lede{color:#8A9099;font:400 17px/1.6 'Inter';margin:20px 0 36px}
 .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1px;background:#1E232B;border:1px solid #1E232B;border-radius:12px;overflow:hidden}
 .stat{background:#0F1217;padding:20px 22px}
 .stat .v{font:800 46px/1 'Barlow Condensed','Arial Narrow',sans-serif;color:#F2F4F7}.stat .u{font:500 14px 'Inter';color:#8A9099;margin-left:4px}
@@ -100,10 +100,8 @@ with tabs[0]:
     n_users = daily_activity["Id"].nunique()
 
     st.markdown(
-        f"""<div class="eyebrow">Wearable performance analytics</div>
-        <div class="hero">Train. Recover.<br><span>Measure.</span></div>
-        <p class="lede">{years:.1f} years of personal WHOOP data and {n_users} Fitbit users, unified in
-        MongoDB Atlas and analyzed with Python. Recovery, sleep and strain in one place.</p>""",
+        f"""<div class="hero">From <span>Data</span> to <span>Discovery</span></div>
+        <p class="lede">{round(years)} years of personal WHOOP data and {n_users} Fitbit users, unified in MongoDB Atlas and analyzed with Python.</p>""",
         unsafe_allow_html=True,
     )
 
@@ -121,20 +119,6 @@ with tabs[0]:
             for v, u, l in stats) + "</div>",
         unsafe_allow_html=True,
     )
-
-    # HRV trend
-    st.markdown('<div class="sec">HRV &middot; monthly average</div>', unsafe_allow_html=True)
-    hrv = phys.assign(Date=pd.to_datetime(phys["Date"]), HRV=num(phys, "Heart rate variability (ms)")).dropna(subset=["HRV"])
-    hrv = hrv.set_index("Date")["HRV"].resample("MS").mean().dropna().reset_index()
-    base = alt.Chart(hrv).encode(
-        x=alt.X("Date:T", title=None, axis=alt.Axis(format="%b %y", grid=False, labelColor=MUTED, domainColor=LINE, tickColor=LINE)),
-        y=alt.Y("HRV:Q", title=None, scale=alt.Scale(zero=False), axis=alt.Axis(gridColor=LINE, labelColor=MUTED, domain=False, ticks=False)),
-    )
-    area = base.mark_area(color=alt.Gradient(gradient="linear", x1=1, x2=1, y1=1, y2=0,
-            stops=[alt.GradientStop(color="rgba(198,244,50,0)", offset=0), alt.GradientStop(color="rgba(198,244,50,.25)", offset=1)]))
-    line = base.mark_line(color=ACCENT, strokeWidth=2)
-    pts = base.mark_circle(color=ACCENT, size=60).encode(tooltip=[alt.Tooltip("Date:T", format="%B %Y"), alt.Tooltip("HRV:Q", format=".0f", title="HRV (ms)")])
-    st.altair_chart((area + line + pts).properties(height=260, background="transparent").configure_view(stroke=None), use_container_width=True)
 
     # Sources
     st.markdown('<div class="sec">Data sources</div>', unsafe_allow_html=True)
