@@ -55,117 +55,109 @@ daily_activity, sleep_day = dfs["daily_activity"], dfs["sleep_day"]
 physiologicals_rafi, sleeps_rafi, workouts_rafi = dfs["physiologicals_rafi"], dfs["sleeps_rafi"], dfs["workouts_rafi"]
 
 
-# Streamlit Layout
+# ---------- Style ----------
+ACCENT, MUTED, LINE = "#C6F432", "#8A9099", "#1E232B"
+st.markdown("""<style>
+@import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;800&family=Inter:wght@400;500&display=swap');
+.block-container{padding-top:3.5rem;max-width:1200px}
+.stMarkdown p,.stMarkdown li{font-family:'Inter',sans-serif}
+.topbar{display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;font:600 13px 'Barlow Condensed','Arial Narrow',sans-serif;letter-spacing:.18em;text-transform:uppercase;color:#8A9099;border-bottom:1px solid #1E232B;padding-bottom:12px}
+.topbar b{color:#F2F4F7}.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#C6F432;margin-right:8px}
+.eyebrow{font:600 14px 'Barlow Condensed','Arial Narrow',sans-serif;letter-spacing:.25em;color:#C6F432;text-transform:uppercase;margin:32px 0 10px}
+.hero{font:800 clamp(44px,7.5vw,92px)/.92 'Barlow Condensed','Arial Narrow',sans-serif;text-transform:uppercase;color:#F2F4F7;margin:0}
+.hero span{color:#C6F432}
+.lede{color:#8A9099;font:400 17px/1.6 'Inter';max-width:640px;margin:20px 0 36px}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1px;background:#1E232B;border:1px solid #1E232B;border-radius:12px;overflow:hidden}
+.stat{background:#0F1217;padding:20px 22px}
+.stat .v{font:800 46px/1 'Barlow Condensed','Arial Narrow',sans-serif;color:#F2F4F7}.stat .u{font:500 14px 'Inter';color:#8A9099;margin-left:4px}
+.stat .l{font:600 12px 'Barlow Condensed','Arial Narrow',sans-serif;letter-spacing:.18em;text-transform:uppercase;color:#8A9099;margin-top:10px}
+.sec{font:600 13px 'Barlow Condensed','Arial Narrow',sans-serif;letter-spacing:.22em;text-transform:uppercase;color:#8A9099;margin:52px 0 14px}
+.card{border:1px solid #1E232B;border-radius:12px;padding:22px;background:#0F1217;height:100%}
+.card h4{font:800 24px 'Barlow Condensed','Arial Narrow',sans-serif;text-transform:uppercase;margin:0 0 6px;color:#F2F4F7;padding:0}
+.card p{color:#8A9099;font:400 14px/1.6 'Inter';margin:0}
+.flow{display:flex;flex-wrap:wrap;gap:8px;align-items:center;font:500 13px 'Inter';color:#C9CED6}
+.flow span{border:1px solid #2A303A;border-radius:999px;padding:6px 14px}.flow i{color:#C6F432;font-style:normal}
+.foot{color:#5C636E;font:400 13px 'Inter';border-top:1px solid #1E232B;padding-top:16px;margin-top:56px}
+.stTabs [data-baseweb="tab"] p{font:600 15px 'Barlow Condensed','Arial Narrow',sans-serif;letter-spacing:.12em;text-transform:uppercase}
+</style>""", unsafe_allow_html=True)
+
 st.markdown(
-    """
-    <div style="text-align:center; margin-top: -40px;">
-        <h1 style="font-size: 48px; font-weight: 700;">Health Analytics Dashboard</h1>
-        <p style="font-size: 18px; margin-top: -10px;">
-            Rafi's WHOOP Data and Fitbit Public Data Analysis
-        </p>
-    </div>
-    <br><br>
-    """,
-    unsafe_allow_html=True
+    f'<div class="topbar"><div><span class="dot"></span><b>Rafi</b> &nbsp;/&nbsp; Health Analytics</div>'
+    f'<div>Source: {data_source}</div></div>',
+    unsafe_allow_html=True,
 )
-st.caption(f"Data source: {data_source}")
 
-# All the Tabs
-tabs = st.tabs(["Project Description", "Fitbit Activity", "Fitbit Sleep Activity", "WHOOP Activity", "WHOOP Sleep Activity", "Comparisons"])
+tabs = st.tabs(["Overview", "Fitbit Activity", "Fitbit Sleep Activity", "WHOOP Activity", "WHOOP Sleep Activity", "Comparisons"])
 
 
-
-
-
-# Tab 0: Project Description
+# TAB 0: Overview
 with tabs[0]:
+    num = lambda df, c: pd.to_numeric(df[c], errors="coerce")
+    phys, slp, wk = physiologicals_rafi, sleeps_rafi, workouts_rafi
+    dates = pd.to_datetime(pd.concat([phys["Date"], slp["Date"], wk["Date"]]), errors="coerce").dropna()
+    years = (dates.max() - dates.min()).days / 365.25
+    sleep_h = (num(slp, "Light sleep duration (min)") + num(slp, "Deep duration (min)") + num(slp, "REM duration (min)")).mean() / 60
+    n_users = daily_activity["Id"].nunique()
+
     st.markdown(
-        "<h1 style='text-align: center;'>Overview</h1>",
-        # Needed to render HTML formatting
-        unsafe_allow_html=True
+        f"""<div class="eyebrow">Wearable performance analytics</div>
+        <div class="hero">Train. Recover.<br><span>Measure.</span></div>
+        <p class="lede">{years:.1f} years of personal WHOOP data and {n_users} Fitbit users, unified in
+        MongoDB Atlas and analyzed with Python. Recovery, sleep and strain in one place.</p>""",
+        unsafe_allow_html=True,
     )
 
-    # The project description
+    stats = [
+        (f"{num(phys, 'Heart rate variability (ms)').mean():.0f}", "ms", "Avg HRV"),
+        (f"{num(phys, 'Resting heart rate (bpm)').mean():.0f}", "bpm", "Resting HR"),
+        (f"{num(slp, 'Sleep performance %').mean():.0f}", "%", "Sleep performance"),
+        (f"{sleep_h:.1f}", "h", "Avg sleep"),
+        (f"{num(phys, 'Day Strain').mean():.1f}", "", "Day strain"),
+        (f"{len(wk):,}", "", "Workouts logged"),
+    ]
     st.markdown(
-        """
-        Welcome to the Health Analytics Dashboard, a data visualization platform 
-        built using MongoDB, Python, and Streamlit. This dashboard analyzes and compares:
-        
-        - Rafi's personal WHOOP physiological, workouts and sleep data
-        - Public Fitbit daily activity and sleep datasets
-
-        <hr>
-
-        <h1 style='text-align: center;'>Goals</h1>
-        
-        - Integrate multi-source health data into a MongoDB database  
-        - Create a scalable pipeline for ETL (Extract, Transform, Load) 
-        - Build interactive visuals to compare activity, sleep, strain, and workout metrics 
-        - Study relationships between metrics such as:
-            - Fitbit User activity vs WHOOP metrics
-            - Fitbit Users VS Whoop Comparisons 
-            - HRV vs RHR
-
-        <hr>
-
-        <h1 style='text-align: center;'>Datasets</h1>
-
-        **Fitbit (Public Dataset)**
-        - Daily activity  
-        - Sleep logs  
-        - Intensity and steps data  
-
-        **WHOOP (Personal Dataset)**  
-        - Physiological strain  
-        - Heart Rate Variability (HRV) and Resting Heart Rate (RHR)
-        - Sleep performance and duration
-
-        <hr>
-
-        <h1 style='text-align: center;'>Developed By</h1>
-
-        **Md Rafiul Islam Rafi**  
-        Fordham University  
-        CISC 5640: NoSQL Database Systems
-        """,
-        unsafe_allow_html=True
+        '<div class="stats">' + "".join(
+            f'<div class="stat"><div class="v">{v}<span class="u">{u}</span></div><div class="l">{l}</div></div>'
+            for v, u, l in stats) + "</div>",
+        unsafe_allow_html=True,
     )
-    st.markdown("<br><br>", unsafe_allow_html=True)
 
-    # DataSet Previews
-    # Fitbit User Dataset
-    st.markdown(
-        "<h2 style='text-align: center;'>Fitbit Dataset</h2>",
-        unsafe_allow_html=True
+    # HRV trend
+    st.markdown('<div class="sec">HRV &middot; monthly average</div>', unsafe_allow_html=True)
+    hrv = phys.assign(Date=pd.to_datetime(phys["Date"]), HRV=num(phys, "Heart rate variability (ms)")).dropna(subset=["HRV"])
+    hrv = hrv.set_index("Date")["HRV"].resample("MS").mean().dropna().reset_index()
+    base = alt.Chart(hrv).encode(
+        x=alt.X("Date:T", title=None, axis=alt.Axis(format="%b %y", grid=False, labelColor=MUTED, domainColor=LINE, tickColor=LINE)),
+        y=alt.Y("HRV:Q", title=None, scale=alt.Scale(zero=False), axis=alt.Axis(gridColor=LINE, labelColor=MUTED, domain=False, ticks=False)),
     )
-    st.dataframe(daily_activity, use_container_width=True)
-    st.markdown("---")
+    area = base.mark_area(color=alt.Gradient(gradient="linear", x1=1, x2=1, y1=1, y2=0,
+            stops=[alt.GradientStop(color="rgba(198,244,50,0)", offset=0), alt.GradientStop(color="rgba(198,244,50,.25)", offset=1)]))
+    line = base.mark_line(color=ACCENT, strokeWidth=2)
+    pts = base.mark_circle(color=ACCENT, size=60).encode(tooltip=[alt.Tooltip("Date:T", format="%B %Y"), alt.Tooltip("HRV:Q", format=".0f", title="HRV (ms)")])
+    st.altair_chart((area + line + pts).properties(height=260, background="transparent").configure_view(stroke=None), use_container_width=True)
 
-    # WHOOP physiology dataset
-    st.markdown(
-        "<h2 style='text-align: center;'>WHOOP Physiological Dataset</h2>",
-        unsafe_allow_html=True
-    )
-    st.dataframe(physiologicals_rafi, use_container_width=True)
-    st.markdown("---")
+    # Sources
+    st.markdown('<div class="sec">Data sources</div>', unsafe_allow_html=True)
+    c1, c2 = st.columns(2)
+    c1.markdown(f'<div class="card"><h4>WHOOP &middot; Personal</h4><p>{len(phys):,} days of HRV, resting HR, strain, SpO2 and skin temp, '
+                f'{len(slp):,} nights of sleep stages and {len(wk):,} workouts.</p></div>', unsafe_allow_html=True)
+    c2.markdown(f'<div class="card"><h4>Fitbit &middot; Public</h4><p>{n_users} anonymized users from 2016: {len(daily_activity):,} days of steps, '
+                f'calories and intensity minutes, plus {len(sleep_day):,} sleep logs.</p></div>', unsafe_allow_html=True)
 
-    # WHOOP sleep dataset
-    st.markdown(
-        "<h2 style='text-align: center;'>WHOOP Sleep Dataset</h2>",
-        unsafe_allow_html=True
-    )
-    st.dataframe(sleeps_rafi, use_container_width=True)
-    st.markdown("---")
+    # Pipeline
+    st.markdown('<div class="sec">Pipeline</div>', unsafe_allow_html=True)
+    st.markdown('<div class="flow"><span>CSV exports</span><i>&rarr;</i><span>Pandas ETL</span><i>&rarr;</i>'
+                '<span>MongoDB Atlas &middot; 5 collections</span><i>&rarr;</i><span>Streamlit + Altair</span></div>',
+                unsafe_allow_html=True)
 
-    # WHOOP workouts dataset
-    st.markdown(
-        "<h2 style='text-align: center;'>WHOOP Workout Dataset</h2>",
-        unsafe_allow_html=True
-    )
-    st.dataframe(workouts_rafi, use_container_width=True)
-    st.markdown("---")
+    # Raw data, tucked away
+    st.markdown('<div class="sec">Raw data</div>', unsafe_allow_html=True)
+    with st.expander("Browse collections"):
+        coll = st.selectbox("Collection", list(dfs), key="raw_coll", label_visibility="collapsed")
+        st.dataframe(dfs[coll], use_container_width=True, hide_index=True)
 
-    st.success("Dashboard Loaded Successfully!")
+    st.markdown('<div class="foot">Md Rafiul Islam Rafi &nbsp;&middot;&nbsp; Fordham University &nbsp;&middot;&nbsp; CISC 5640 NoSQL Database Systems</div>',
+                unsafe_allow_html=True)
 
 
 
