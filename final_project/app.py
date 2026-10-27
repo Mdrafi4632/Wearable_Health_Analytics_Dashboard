@@ -80,6 +80,8 @@ st.markdown("""<style>
 .foot{color:#5C636E;font:400 13px 'Inter';border-top:1px solid #1E232B;padding-top:16px;margin-top:56px}
 .ptitle{font:800 clamp(36px,5vw,56px)/1 'Barlow Condensed','Arial Narrow',sans-serif;text-transform:uppercase;color:#F2F4F7;margin:32px 0 0}
 .ptitle span{color:#C6F432}
+.cmp{font:400 13px/1.5 'Inter';color:#8A9099;margin-top:10px}.cmp b{color:#C6F432;font-weight:500}
+.take{border-left:2px solid #C6F432;padding:4px 0 4px 16px;margin:0 0 14px;color:#C9CED6;font:400 15px/1.6 'Inter'}
 .stTabs [data-baseweb="tab"] p{font:600 15px 'Barlow Condensed','Arial Narrow',sans-serif;letter-spacing:.12em;text-transform:uppercase}
 </style>""", unsafe_allow_html=True)
 
@@ -452,168 +454,191 @@ with tabs[4]:
 
 
 
-# TAB 5: Comparisons between WHOOP vs Fitbit
+# TAB 5: Rafi vs the Fitbit cohort
 with tabs[5]:
-    st.header("WHOOP vs Fitbit Comparison Metrics")
+    RAFI, COHORT = ACCENT, "#8A9099"
+    DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 
-    # Make aligned dataframes using index
-    fit = daily_activity.copy().reset_index(drop=True)
-    whoop = physiologicals_rafi.copy().reset_index(drop=True)
+    # Fitbit cohort: one average per user, so every user counts equally
+    fa = daily_activity.copy()
+    fa["Calories"] = pd.to_numeric(fa["Calories"], errors="coerce")
+    fa = fa[fa["Calories"] > 0]
+    fs = sleep_day.copy()
+    fs["Date"] = pd.to_datetime(fs["SleepDay"], errors="coerce")
+    fs["Hours"] = pd.to_numeric(fs["TotalMinutesAsleep"], errors="coerce") / 60
+    fs["Eff"] = fs["Hours"] * 60 / pd.to_numeric(fs["TotalTimeInBed"], errors="coerce") * 100
+    fs = fs.dropna(subset=["Date", "Hours"])
+    users = pd.DataFrame({"Calories": fa.groupby("Id")["Calories"].mean(),
+                          "Hours": fs.groupby("Id")["Hours"].mean(),
+                          "Eff": fs.groupby("Id")["Eff"].mean()})
 
-    # Make lengths equal
-    min_len = min(len(fit), len(whoop))
-    fit = fit.head(min_len)
-    whoop = whoop.head(min_len)
+    # Rafi (WHOOP)
+    rp = numeric(physiologicals_rafi, {"Energy burned (cal)": "Calories"})
+    rp = rp[rp["Calories"] > 0]
+    rs = numeric(sleeps_rafi, {"Light sleep duration (min)": "Light", "Deep duration (min)": "Deep",
+                               "REM duration (min)": "REM", "Sleep efficiency %": "Eff", "Sleep need (min)": "Need"})
+    rs["Hours"] = rs[["Light", "Deep", "REM"]].sum(axis=1, min_count=3) / 60
+    rs = rs.dropna(subset=["Hours"])
+    rafi = {"Calories": rp["Calories"].mean(), "Hours": rs["Hours"].mean(), "Eff": rs["Eff"].mean()}
 
-    # Create merged comparison table
-    merged = pd.DataFrame({
-        "Fitbit Calories": fit["Calories"],
-        "WHOOP Energy Burn": whoop["Energy burned (cal)"],
-        "Fitbit Steps": fit["TotalSteps"],
-        "WHOOP Day Strain": whoop["Day Strain"],
-    })
+    def weekend_gain(d):
+        m = d.groupby(d["Date"].dt.weekday >= 5)["Hours"].mean()
+        return m.get(True, float("nan")) - m.get(False, float("nan"))
 
-    # Prepare Fitbit data
-    fitbit_avg = (
-        daily_activity.groupby("Date")["Calories"]
-        .mean()
-        .reset_index()
-    )
-    fitbit_avg["Date"] = pd.to_datetime(fitbit_avg["Date"])
+    nights = fs.groupby("Id")["Hours"]
+    users["SD"] = nights.std()[nights.count() >= 5]
+    users["Weekend"] = fs.groupby("Id")[["Date", "Hours"]].apply(weekend_gain)
+    rafi["SD"], rafi["Weekend"] = rs["Hours"].std(), weekend_gain(rs)
 
-    # Prepare WHOOP data
-    whoop_energy = physiologicals_rafi.copy()
-    whoop_energy["Date"] = pd.to_datetime(whoop_energy["Date"])
+    def rank(m):
+        if m == "SD":
+            pct = (users[m].dropna() > rafi[m]).mean() * 100
+            return f"more consistent than {pct:.0f}%" if pct >= 50 else f"less consistent than {100 - pct:.0f}%"
+        pct = (users[m].dropna() < rafi[m]).mean() * 100
+        return f"higher than {pct:.0f}%" if pct >= 50 else f"lower than {100 - pct:.0f}%"
 
-    whoop_energy = whoop_energy[["Date", "Energy burned (cal)"]].rename(
-        columns={"Energy burned (cal)": "WHOOP Energy"}
-    )
+    st.markdown(
+        f'<div class="ptitle">Rafi <span>vs</span> the Cohort</div>'
+        f'<p class="lede">Two years of personal WHOOP data next to {len(users)} Fitbit users. '
+        f'Different people, years and devices, so read this as context, not a contest.</p>', unsafe_allow_html=True)
 
-    # Merge them by nearest dates
-    merged_energy = pd.merge_asof(
-        fitbit_avg.sort_values("Date"),
-        whoop_energy.sort_values("Date"),
-        on="Date",
-        direction="nearest"
-    )
+    # Head-to-head cards
+    seven_r, seven_c = (rs.Hours >= 7).mean() * 100, (fs.Hours >= 7).mean() * 100
+    cards = [
+        ("Calories / day", f"{rafi['Calories']:,.0f}", "kcal", f"Cohort avg {users.Calories.mean():,.0f} &middot; <b>{rank('Calories')} of users</b>"),
+        ("Sleep / night", f"{rafi['Hours']:.1f}", "h", f"Cohort avg {users.Hours.mean():.1f} h &middot; <b>{rank('Hours')} of users</b>"),
+        ("Sleep efficiency", f"{rafi['Eff']:.0f}", "%", f"Cohort avg {users.Eff.mean():.0f}% &middot; <b>{rank('Eff')} of users</b>"),
+        ("Nights over 7 h", f"{seven_r:.0f}", "%", f"Cohort {seven_c:.0f}% of nights"),
+    ]
+    st.markdown('<div class="stats">' + "".join(
+        f'<div class="stat"><div class="l" style="margin:0 0 10px">{l}</div><div class="v">{v}<span class="u">{u}</span></div>'
+        f'<div class="cmp">{c}</div></div>' for l, v, u, c in cards) + "</div>", unsafe_allow_html=True)
 
-    # Average Daily Calories Burned Comparison
-    st.subheader("Average Daily Calories Burned")
+    # Key takeaways
+    under5_r, under5_c = (rs.Hours < 5).mean() * 100, (fs.Hours < 5).mean() * 100
+    gap = rs["Need"].mean() / 60 - rafi["Hours"]
+    fa["Date"] = pd.to_datetime(fa["Date"], errors="coerce").dt.normalize()
+    fa["TotalSteps"] = pd.to_numeric(fa["TotalSteps"], errors="coerce")
+    link_c = fa.merge(fs.assign(Date=fs["Date"].dt.normalize()), on=["Id", "Date"])[["TotalSteps", "Hours"]].dropna()
+    rstrain = numeric(physiologicals_rafi, {"Day Strain": "Strain"})[["Date", "Strain"]]
+    link_r = rstrain.merge(rs[["Date", "Hours"]], on="Date").dropna()
+    r_c, r_r = link_c["TotalSteps"].corr(link_c["Hours"]), link_r["Strain"].corr(link_r["Hours"])
+    section("Key takeaways")
+    for t in [
+        f"Rafi burns <b>{rafi['Calories'] - users.Calories.mean():,.0f} kcal/day more</b> than the average Fitbit user, "
+        f"but sleeps <b>{users.Hours.mean() - rafi['Hours']:.1f} h less</b> per night.",
+        f"<b>{under5_r:.0f}%</b> of Rafi's nights are under 5 hours, compared with <b>{under5_c:.0f}%</b> for the cohort.",
+        f"Sleep efficiency is {rank('Eff')} of users, so the gap is <b>time asleep</b>, not restless sleep.",
+        f"WHOOP estimates a need of <b>{rs['Need'].mean() / 60:.1f} h</b>, about <b>{gap:.1f} h</b> more than Rafi actually sleeps.",
+        f"Rafi's sleep swings by <b>&plusmn;{rafi['SD']:.1f} h</b> night to night (cohort median &plusmn;{users.SD.median():.1f} h), "
+        f"<b>{rank('SD')} of users</b>.",
+        f"The cohort sleeps <b>{users.Weekend.median():+.1f} h</b> extra on weekends (median); Rafi <b>{rafi['Weekend']:+.1f} h</b>.",
+        f"Harder days don't mean more sleep: <b>r = {r_r:.2f}</b> for Rafi (strain vs sleep), "
+        f"<b>r = {r_c:.2f}</b> for the cohort (steps vs sleep).",
+    ]:
+        st.markdown(f'<div class="take">{t}</div>', unsafe_allow_html=True)
 
-    fitbit_avg_cal = daily_activity["Calories"].mean()
-    whoop_avg_energy = physiologicals_rafi["Energy burned (cal)"].mean()
+    # Where Rafi ranks
+    section(f"Where Rafi ranks &middot; <span style='color:{COHORT}'>each dot = one Fitbit user</span>, "
+            f"<span style='color:{RAFI}'>lime = Rafi</span>")
+    for m, label, fmt in [("Calories", "Calories / day", ",.0f"), ("Hours", "Sleep hours / night", ".1f"), ("Eff", "Sleep efficiency %", ".0f"),
+                          ("SD", "Night-to-night variation (h)", ".1f"), ("Weekend", "Weekend extra sleep (h)", "+.1f")]:
+        l, r = st.columns([1, 3])
+        l.markdown(f'<div class="stat" style="background:none;padding:14px 0"><div class="l" style="margin:0">{label}</div>'
+                   f'<div class="cmp" style="margin-top:6px"><b>{rank(m).capitalize()}</b></div></div>', unsafe_allow_html=True)
+        cohort = users[[m]].dropna().reset_index()
+        me = pd.DataFrame({m: [rafi[m]], "t": ["Rafi"]})
+        x = alt.X(f"{m}:Q", title=None, scale=alt.Scale(zero=False), axis=alt.Axis(format=fmt, grid=False))
+        dots = alt.Chart(cohort).mark_circle(color=COHORT, size=90, opacity=0.5).encode(
+            x=x, tooltip=[alt.Tooltip("Id:N", title="Fitbit user"), alt.Tooltip(f"{m}:Q", format=fmt)])
+        mine = alt.Chart(me).mark_circle(color=RAFI, size=220, stroke="#0B0D10", strokeWidth=2).encode(
+            x=x, tooltip=["t:N", alt.Tooltip(f"{m}:Q", format=fmt)])
+        tag = alt.Chart(me).mark_text(color=RAFI, dy=-20, font="Inter", fontWeight=600, fontSize=13).encode(x=x, text="t:N")
+        show(dots + mine + tag, 100, r)
 
-    compare_df = pd.DataFrame({
-        "Source": ["Fitbit Users", "Rafi WHOOP"],
-        "Energy": [fitbit_avg_cal, whoop_avg_energy]
-    })
+    left, right = st.columns(2, gap="large")
 
-    bar = (
-        alt.Chart(compare_df)
-        .mark_bar(size=120, opacity=0.8)
-        .encode(
-            x=alt.X("Source:N", title="Data Source", axis=alt.Axis(labelAngle=0)),
-            y=alt.Y("Energy:Q", title="Average Daily Energy (Calories)"),
-            color=alt.Color("Source:N", scale=alt.Scale(range=["#4BA3C3", "#F28E2B"])),
-            tooltip=["Source", "Energy"]
-        )
-    )
-    labels = (
-        alt.Chart(compare_df)
-        .mark_text(dy=-10, color="white", fontSize=14, fontWeight="bold")
-        .encode(
-            x="Source:N",
-            y="Energy:Q",
-            text=alt.Text("Energy:Q", format=".0f")
-        )
-    )
-    st.altair_chart(bar + labels, width="stretch")
-    st.markdown("<br>", unsafe_allow_html=True)
+    # Nights by sleep length
+    section(f"Nights by sleep length &middot; <span style='color:{RAFI}'>Rafi</span> vs <span style='color:{COHORT}'>cohort</span>", left)
+    bins, labels = [0, 5, 6, 7, 8, 24], ["<5 h", "5-6 h", "6-7 h", "7-8 h", "8 h+"]
+    dist = pd.concat([
+        pd.cut(rs.Hours, bins, labels=labels).value_counts(normalize=True).rename("Share").reset_index().assign(Who="Rafi"),
+        pd.cut(fs.Hours, bins, labels=labels).value_counts(normalize=True).rename("Share").reset_index().assign(Who="Cohort")])
+    dist.columns = ["Bucket", "Share", "Who"]
+    who = alt.Scale(domain=["Rafi", "Cohort"], range=[RAFI, COHORT])
+    show(alt.Chart(dist).mark_bar(cornerRadiusTopLeft=3, cornerRadiusTopRight=3).encode(
+        x=alt.X("Bucket:N", title=None, sort=labels, axis=alt.Axis(labelAngle=0, grid=False)),
+        xOffset=alt.XOffset("Who:N", sort=["Rafi", "Cohort"]),
+        y=alt.Y("Share:Q", title=None, axis=alt.Axis(format="%")),
+        color=alt.Color("Who:N", scale=who, legend=None),
+        tooltip=["Who:N", "Bucket:N", alt.Tooltip("Share:Q", format=".0%", title="Share of nights")]), 260, left)
 
+    # Sleep by day of week
+    section(f"Sleep by day of week (h) &middot; <span style='color:{RAFI}'>Rafi</span> vs <span style='color:{COHORT}'>cohort</span>", right)
+    dow = pd.concat([
+        rs.groupby(rs.Date.dt.day_name())["Hours"].mean().rename("Hours").reset_index().assign(Who="Rafi"),
+        fs.groupby(fs.Date.dt.day_name())["Hours"].mean().rename("Hours").reset_index().assign(Who="Cohort")])
+    dow.columns = ["Day", "Hours", "Who"]
+    dow["Day"] = dow["Day"].str[:3]
+    base = alt.Chart(dow).encode(
+        x=alt.X("Day:N", title=None, sort=[d[:3] for d in DAYS], axis=alt.Axis(labelAngle=0, grid=False)),
+        y=alt.Y("Hours:Q", title=None, scale=alt.Scale(zero=False)),
+        color=alt.Color("Who:N", scale=who, legend=None))
+    show(base.mark_line(strokeWidth=2.5) +
+         base.mark_circle(size=60).encode(tooltip=["Who:N", "Day:N", alt.Tooltip("Hours:Q", format=".1f")]), 260, right)
 
-    # Sleep Quality Duration Comparison
-    st.subheader("Sleep Quality Duration")
+    left, right = st.columns(2, gap="large")
 
-    # Fitbit sleep average
-    fitbit_avg_sleep = sleep_day["TotalMinutesAsleep"].mean()
+    # Calories by day of week
+    section(f"Calories by day of week &middot; <span style='color:{RAFI}'>Rafi</span> vs <span style='color:{COHORT}'>cohort</span>", left)
+    cal = pd.concat([
+        rp.groupby(rp.Date.dt.day_name())["Calories"].mean().rename("Calories").reset_index().assign(Who="Rafi"),
+        fa.groupby(fa.Date.dt.day_name())["Calories"].mean().rename("Calories").reset_index().assign(Who="Cohort")])
+    cal.columns = ["Day", "Calories", "Who"]
+    cal["Day"] = cal["Day"].str[:3]
+    base = alt.Chart(cal).encode(
+        x=alt.X("Day:N", title=None, sort=[d[:3] for d in DAYS], axis=alt.Axis(labelAngle=0, grid=False)),
+        y=alt.Y("Calories:Q", title=None, scale=alt.Scale(zero=False), axis=alt.Axis(format=",.0f")),
+        color=alt.Color("Who:N", scale=who, legend=None))
+    show(base.mark_line(strokeWidth=2.5) +
+         base.mark_circle(size=60).encode(tooltip=["Who:N", "Day:N", alt.Tooltip("Calories:Q", format=",.0f")]), 260, left)
 
-    # WHOOP sleep average
-    whoop_sleep = sleeps_rafi.copy()
-    whoop_sleep["TotalSleepMinutes"] = (
-        whoop_sleep["Light sleep duration (min)"] +
-        whoop_sleep["Deep duration (min)"] +
-        whoop_sleep["REM duration (min)"]
-    )
-    whoop_avg_sleep = whoop_sleep["TotalSleepMinutes"].mean()
+    # Rebound after a short night
+    def rebound(d):
+        d = d.sort_values("Date")
+        nxt = d["Hours"].shift(-1)[(d["Date"].shift(-1) - d["Date"]).dt.days == 1]
+        pairs = pd.DataFrame({"Hours": d["Hours"], "Next": nxt}).dropna()
+        return pairs[pairs["Hours"] < 6]
+    rr = rebound(rs)
+    cr = pd.concat([rebound(g) for _, g in fs.groupby("Id")])
+    reb = pd.DataFrame({
+        "Night": ["Short night", "Next night", "Typical night"] * 2,
+        "Who": ["Rafi"] * 3 + ["Cohort"] * 3,
+        "Hours": [rr.Hours.mean(), rr.Next.mean(), rafi["Hours"], cr.Hours.mean(), cr.Next.mean(), fs.Hours.mean()]})
+    section(f"Rebound after a night under 6 h &middot; <span style='color:{RAFI}'>Rafi</span> vs <span style='color:{COHORT}'>cohort</span>", right)
+    show(alt.Chart(reb).mark_bar(cornerRadiusTopLeft=3, cornerRadiusTopRight=3).encode(
+        x=alt.X("Night:N", title=None, sort=["Short night", "Next night", "Typical night"], axis=alt.Axis(labelAngle=0, grid=False)),
+        xOffset=alt.XOffset("Who:N", sort=["Rafi", "Cohort"]),
+        y=alt.Y("Hours:Q", title=None),
+        color=alt.Color("Who:N", scale=who, legend=None),
+        tooltip=["Who:N", "Night:N", alt.Tooltip("Hours:Q", format=".1f")]), 260, right)
+    right.caption(f"Based on {len(rr)} short nights for Rafi and {len(cr)} for the cohort, followed by a logged next night.")
 
-    # Create comparison dataframe
-    compare_sleep_df = pd.DataFrame({
-        "Source": ["Fitbit Users", "Rafi WHOOP"],
-        "SleepMinutes": [fitbit_avg_sleep, whoop_avg_sleep]
-    })
+    # Does activity help you sleep?
+    section("Does a harder day mean more sleep? &middot; same-date activity vs sleep, with trend line")
+    left, right = st.columns(2, gap="large")
+    for where, df_, xcol, xlab, color, r, who_ in [
+        (left, link_c, "TotalSteps", "Steps", COHORT, r_c, "Cohort"),
+        (right, link_r, "Strain", "Day strain", RAFI, r_r, "Rafi")]:
+        where.markdown(f'<div class="cmp" style="margin:0 0 4px"><b style="color:{color}">{who_}</b> &middot; r = {r:.2f}</div>',
+                       unsafe_allow_html=True)
+        pts = alt.Chart(df_).mark_circle(color=color, size=30, opacity=0.5).encode(
+            x=alt.X(f"{xcol}:Q", title=xlab, scale=alt.Scale(zero=False)),
+            y=alt.Y("Hours:Q", title="Sleep (h)"),
+            tooltip=[alt.Tooltip(f"{xcol}:Q", format=",.1f"), alt.Tooltip("Hours:Q", format=".1f")])
+        fit = pts.transform_regression(xcol, "Hours").mark_line(color="#F2F4F7", strokeWidth=2, strokeDash=[5, 4])
+        show(pts + fit, 260, where)
 
-    bar = (
-        alt.Chart(compare_sleep_df)
-        .mark_bar(size=120, opacity=0.8)
-        .encode(
-            x=alt.X("Source:N", title="Data Source", axis=alt.Axis(labelAngle=0)),
-            y=alt.Y("SleepMinutes:Q", title="Average Sleep Duration (min)"),
-            color=alt.Color("Source:N", scale=alt.Scale(range=["#4BA3C3", "#F28E2B"])),
-            tooltip=["Source", "SleepMinutes"]
-        )
-    )
-    labels = (
-        alt.Chart(compare_sleep_df)
-        .mark_text(dy=-10, color="white", fontSize=14, fontWeight="bold")
-        .encode(
-            x="Source:N",
-            y="SleepMinutes:Q",
-            text=alt.Text("SleepMinutes:Q", format=".0f")
-        )
-    )
-    st.altair_chart((bar + labels).properties(height=350), width="stretch")
-
-
-    # Sleep Quality Comparison
-    st.subheader("Sleep Quality Comparison")
-
-    # Fitbit Sleep Performance
-    fitbit_sleep = sleep_day.copy()
-    fitbit_sleep["Efficiency"] = (fitbit_sleep["TotalMinutesAsleep"] / fitbit_sleep["TotalTimeInBed"]) * 100
-    avg_fitbit_efficiency = fitbit_sleep["Efficiency"].mean()
-
-    # WHOOP Sleep Performance
-    whoop_sleep = sleeps_rafi.copy()
-    avg_whoop_performance = whoop_sleep["Sleep performance %"].mean()
-
-    # Create comparison dataframe
-    compare_sleep = pd.DataFrame({
-        "Source": ["Fitbit User", "WHOOP"],
-        "Value": [avg_fitbit_efficiency, avg_whoop_performance]
-    })
-
-    bars = (
-        alt.Chart(compare_sleep)
-        .mark_bar(size=120, opacity=0.85)
-        .encode(
-            x=alt.X("Source:N", title="Data Source", axis=alt.Axis(labelAngle=0)),
-            y=alt.Y("Value:Q", title="Average Sleep Quality (%)"),
-            color=alt.Color("Source:N", scale=alt.Scale(range=["#4BA3C3", "#F28E2B"])),
-            tooltip=["Source", "Value"]
-        )
-    )
-    labels = (
-        alt.Chart(compare_sleep)
-        .mark_text(
-            dy=-10,
-            color="white",
-            fontSize=14,
-            fontWeight="bold"
-        )
-        .encode(
-            x="Source:N",
-            y="Value:Q",
-            text=alt.Text("Value:Q", format=".1f")
-        )
-    )
-    st.altair_chart(bars + labels, width="stretch")
+    st.markdown('<div class="foot">Fitbit: 2016 public Kaggle dataset, cohort averages weight every user equally. '
+                'WHOOP: one person, Dec 2023 to Aug 2025. Sleep and calorie algorithms differ by device.</div>',
+                unsafe_allow_html=True)
