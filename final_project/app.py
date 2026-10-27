@@ -69,7 +69,7 @@ st.markdown("""<style>
 .lede{color:#8A9099;font:400 17px/1.6 'Inter';margin:20px 0 36px}
 .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1px;background:#1E232B;border:1px solid #1E232B;border-radius:12px;overflow:hidden}
 .stat{background:#0F1217;padding:20px 22px}
-.stat .v{font:800 46px/1 'Barlow Condensed','Arial Narrow',sans-serif;color:#F2F4F7}.stat .u{font:500 14px 'Inter';color:#8A9099;margin-left:4px}
+.stat .v{font:800 clamp(30px,3.2vw,46px)/1 'Barlow Condensed','Arial Narrow',sans-serif;color:#F2F4F7;white-space:nowrap}.stat .u{font:500 14px 'Inter';color:#8A9099;margin-left:4px}
 .stat .l{font:600 12px 'Barlow Condensed','Arial Narrow',sans-serif;letter-spacing:.18em;text-transform:uppercase;color:#8A9099;margin-top:10px}
 .sec{font:600 13px 'Barlow Condensed','Arial Narrow',sans-serif;letter-spacing:.22em;text-transform:uppercase;color:#8A9099;margin:52px 0 14px}
 .card{border:1px solid #1E232B;border-radius:12px;padding:22px;background:#0F1217;height:100%}
@@ -78,8 +78,28 @@ st.markdown("""<style>
 .flow{display:flex;flex-wrap:wrap;gap:8px;align-items:center;font:500 13px 'Inter';color:#C9CED6}
 .flow span{border:1px solid #2A303A;border-radius:999px;padding:6px 14px}.flow i{color:#C6F432;font-style:normal}
 .foot{color:#5C636E;font:400 13px 'Inter';border-top:1px solid #1E232B;padding-top:16px;margin-top:56px}
+.ptitle{font:800 clamp(36px,5vw,56px)/1 'Barlow Condensed','Arial Narrow',sans-serif;text-transform:uppercase;color:#F2F4F7;margin:32px 0 0}
+.ptitle span{color:#C6F432}
 .stTabs [data-baseweb="tab"] p{font:600 15px 'Barlow Condensed','Arial Narrow',sans-serif;letter-spacing:.12em;text-transform:uppercase}
 </style>""", unsafe_allow_html=True)
+
+def stat_row(items):
+    st.markdown('<div class="stats">' + "".join(
+        f'<div class="stat"><div class="v">{v}<span class="u">{u}</span></div><div class="l">{l}</div></div>'
+        for v, u, l in items) + "</div>", unsafe_allow_html=True)
+
+
+def section(title, where=st):
+    where.markdown(f'<div class="sec">{title}</div>', unsafe_allow_html=True)
+
+
+def show(chart, h=280, where=st):
+    where.altair_chart(
+        chart.properties(height=h, background="transparent").configure_view(stroke=None)
+        .configure_axis(labelColor=MUTED, titleColor=MUTED, gridColor=LINE, domainColor=LINE, tickColor=LINE,
+                        labelFont="Inter", titleFont="Inter", titleFontWeight=500),
+        use_container_width=True)
+
 
 st.markdown(
     f'<div class="topbar"><div><span class="dot"></span><b>Rafi</b> &nbsp;/&nbsp; Health Analytics</div>'
@@ -149,159 +169,66 @@ with tabs[0]:
 
 # TAB 1: Fitbit Activity
 with tabs[1]:
-    st.markdown("<h1 style='text-align: center;'>Fitbit User Activity Insights</h1>", unsafe_allow_html=True)
+    fa = daily_activity.copy()
+    fa["Date"] = pd.to_datetime(fa["Date"], errors="coerce")
+    for c in ["TotalSteps", "TotalDistance", "HighIntensityMinutes", "ModerateIntensityMinutes",
+              "LowIntensityMinutes", "RestMinutes", "Calories"]:
+        fa[c] = pd.to_numeric(fa[c], errors="coerce")
+    fa = fa[fa["Calories"] > 0].dropna(subset=["Date"])  # 0 kcal = device not worn
+    fa = fa.drop_duplicates(["Id", "Date"], keep="last").sort_values("Date")
+    users = sorted(fa["Id"].unique())
 
-    # User Selector
-    user_ids = sorted(daily_activity["Id"].unique())
-    selected_user = st.selectbox("Select User ID:", user_ids, key="activity_user")
+    st.markdown(
+        f'<div class="ptitle">Fitbit <span>Activity</span></div>'
+        f'<p class="lede">{len(users)} anonymized users &middot; {fa.Date.min():%b %d} to {fa.Date.max():%b %d, %Y}. '
+        f'Pick a user to see their daily movement.</p>', unsafe_allow_html=True)
 
-    # Filter data for selected user
-    user_df = daily_activity[daily_activity["Id"] == selected_user].reset_index(drop=True)
-    user_reset = user_df.reset_index()
+    pick, _ = st.columns([1, 3])
+    user = pick.selectbox("User ID", users, key="activity_user")
+    u = fa[fa["Id"] == user]
+    best = u.loc[u["TotalSteps"].idxmax()]
 
-    st.subheader(f"Showing Data for User: {selected_user}")
-    st.markdown("<br><br>", unsafe_allow_html=True)
+    stat_row([
+        (f"{u.TotalSteps.mean():,.0f}", "", "Avg daily steps"),
+        (f"{u.Calories.mean():,.0f}", "kcal", "Avg calories"),
+        (f"{(u.HighIntensityMinutes + u.ModerateIntensityMinutes).mean():.0f}", "min", "Active / day"),
+        (f"{(u.TotalSteps >= 10000).mean() * 100:.0f}", "%", "Days over 10k"),
+        (f"{best.TotalSteps:,.0f}", "", f"Best day &middot; {best.Date:%b %d}"),
+        (f"{len(u)}", "", "Days tracked"),
+    ])
 
-    # Total Steps Graph
-    steps_chart = (
-        alt.Chart(user_reset)
-        .mark_line(color="#4BA3C3")
-        .encode(
-            x=alt.X("index", title="Day Index"),
-            y=alt.Y("TotalSteps", title="Total Steps"),
-            tooltip=["index", "TotalSteps"]
-        )
-        .properties(
-            width=900,
-            height=350,
-            title="Fitbit Total Steps Over Time"
-        )
-    )
-    st.altair_chart(steps_chart, use_container_width=True)
+    # Daily steps with 10k goal
+    section("Daily steps &middot; dashed line = 10k goal")
+    bars = alt.Chart(u).mark_bar(color=ACCENT, cornerRadiusTopLeft=3, cornerRadiusTopRight=3).encode(
+        x=alt.X("Date:T", title=None, axis=alt.Axis(format="%b %d", grid=False)),
+        y=alt.Y("TotalSteps:Q", title=None),
+        tooltip=[alt.Tooltip("Date:T", format="%a, %b %d"), alt.Tooltip("TotalSteps:Q", format=",", title="Steps")])
+    goal = pd.DataFrame({"y": [10000], "t": ["10k goal"]})
+    rule = alt.Chart(goal).mark_rule(color=MUTED, strokeDash=[4, 4]).encode(y="y:Q")
+    show(bars + rule)
 
-    # Total Calories Graph
-    calories_chart = (
-        alt.Chart(user_reset)
-        .mark_line(color="#F28E2B")
-        .encode(
-            x=alt.X("index", title="Day Index"),
-            y=alt.Y("Calories", title="Calories Burned"),
-            tooltip=["index", "Calories"]
-        )
-        .properties(
-            width=900,
-            height=350,
-            title="Fitbit Calories Burned Over Time"
-        )
-    )
-    st.altair_chart(calories_chart, use_container_width=True)
-    st.markdown("<br><br>", unsafe_allow_html=True)
+    left, right = st.columns(2, gap="large")
 
+    # Steps vs calories
+    section("Steps vs calories", left)
+    scatter = alt.Chart(u).mark_circle(color=ACCENT, size=70, opacity=0.75).encode(
+        x=alt.X("TotalSteps:Q", title="Steps", scale=alt.Scale(zero=False)),
+        y=alt.Y("Calories:Q", title="Calories", scale=alt.Scale(zero=False)),
+        tooltip=[alt.Tooltip("Date:T", format="%b %d"), alt.Tooltip("TotalSteps:Q", format=","), "Calories:Q"])
+    show(scatter, 300, left)
 
-    # Summary Stats
-    st.subheader("Summary of the Selected User")
-
-    total_steps = user_df["TotalSteps"].sum()
-    total_calories = user_df["Calories"].sum()
-    avg_steps = user_df["TotalSteps"].mean()
-    avg_calories = user_df["Calories"].mean()
-
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Total Steps", f"{total_steps:,}")
-    col2.metric("Total Calories Burned", f"{total_calories:,}")
-    col3.metric("Avg Daily Steps", f"{avg_steps:,.0f}")
-    col4.metric("Avg Daily Calories", f"{avg_calories:,.0f}")
-
-    best_day = user_df.loc[user_df["TotalSteps"].idxmax()]
-    worst_day = user_df.loc[user_df["TotalSteps"].idxmin()]
-
-    possible_date_cols = [col for col in user_df.columns if "date" in col.lower()]
-    if possible_date_cols:
-        date_col = possible_date_cols[0]  
-    else:
-        date_col = None
-
-    col5, col6 = st.columns(2)
-
-    # Best Day
-    col5.metric(
-        "Best Day (Most Steps)",
-        f"{best_day['TotalSteps']:,}",
-        help=f"Date: {best_day[date_col]}" if date_col else "Date not available"
-    )
-
-    # Worst Day
-    col6.metric(
-        "Worst Day (Fewest Steps)",
-        f"{worst_day['TotalSteps']:,}",
-        help=f"Date: {worst_day[date_col]}" if date_col else "Date not available"
-    )
-    st.markdown("<br><br>", unsafe_allow_html=True)
-
-
-   # Correlation scatter plot
-    st.subheader("Steps vs Calories Correlation")
-    scatter = (
-        alt.Chart(user_reset)
-        .mark_circle(size=60, color="#F76E6E", opacity=0.7)
-        .encode(
-            x=alt.X("TotalSteps", title="Total Steps"),
-            y=alt.Y("Calories", title="Calories Burned"),
-            tooltip=["index", "TotalSteps", "Calories"]
-        )
-        .properties(width=700, height=400)
-    )
-    st.altair_chart(scatter, use_container_width=True)
-    st.markdown("<br><br>", unsafe_allow_html=True)
-
-
-    # Pie Chart for Intensity Breakdown
-    st.subheader("Daily Activity Composition Intensity Breakdown")
-
-    # Standardize column names
-    user_df.columns = user_df.columns.str.strip().str.replace(" ", "", regex=False)
-
-    intensity_cols = [
-        "HighIntensityMinutes",
-        "ModerateIntensityMinutes",
-        "LowIntensityMinutes",
-        "RestMinutes"
-    ]
-
-    # Check if all columns exist
-    if all(col in user_df.columns for col in intensity_cols):
-
-        intensity_totals = {
-            "High Intensity": user_df["HighIntensityMinutes"].sum(),
-            "Moderate Intensity": user_df["ModerateIntensityMinutes"].sum(),
-            "Low Intensity": user_df["LowIntensityMinutes"].sum(),
-            "Rest": user_df["RestMinutes"].sum()
-        }
-
-        intensity_df = pd.DataFrame({
-            "Category": list(intensity_totals.keys()),
-            "Minutes": list(intensity_totals.values())
-        })
-
-        # Color palette
-        color_scale = alt.Scale(
-            domain=["High Intensity", "Moderate Intensity", "Low Intensity", "Rest"],
-            range=["#2E6197", "#38812E", "#F28E2B", "#CD3638"]
-        )
-
-        pie_chart = (
-            alt.Chart(intensity_df)
-            .mark_arc()
-            .encode(
-                theta=alt.Theta(field="Minutes", type="quantitative"),
-                color=alt.Color(field="Category", type="nominal", scale=color_scale),
-                tooltip=["Category", "Minutes"]
-            )
-            .properties(width=450, height=450)
-        )
-        st.altair_chart(pie_chart, use_container_width=True)
-    else:
-        st.warning(f"Intensity data missing. Found columns: {user_df.columns.tolist()}")
+    # Average active minutes
+    section("Average day &middot; active minutes", right)
+    mins = pd.DataFrame({
+        "Intensity": ["High", "Moderate", "Low"],
+        "Minutes": [u.HighIntensityMinutes.mean(), u.ModerateIntensityMinutes.mean(), u.LowIntensityMinutes.mean()]})
+    y = alt.Y("Intensity:N", title=None, sort=None, axis=alt.Axis(labelFontSize=13, domain=False, ticks=False))
+    hbar = alt.Chart(mins).mark_bar(color=ACCENT, cornerRadiusTopRight=3, cornerRadiusBottomRight=3, height=28).encode(
+        x=alt.X("Minutes:Q", title=None, axis=None), y=y, tooltip=["Intensity", alt.Tooltip("Minutes:Q", format=".0f")])
+    vals = alt.Chart(mins).mark_text(align="left", dx=6, color="#F2F4F7", font="Inter", fontSize=13).encode(
+        x="Minutes:Q", y=y, text=alt.Text("Minutes:Q", format=".0f"))
+    show(hbar + vals, 230, right)
+    right.caption(f"Plus {u.RestMinutes.mean() / 60:.1f} h of rest / sedentary time per day.")
 
 
 
