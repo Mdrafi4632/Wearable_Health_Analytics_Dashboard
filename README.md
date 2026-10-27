@@ -7,6 +7,11 @@
 **Instructor:** Kyle Dent  
 **Institution:** Fordham University
 
+Website URL: https://mdrafi4632-health-analytics-dashboard-final-projectapp-eovewu.streamlit.app/
+             https://share.streamlit.io/
+             https://cloud.mongodb.com/v2/690cdc6f5c5ecd05203dc4e3#/clusters
+
+
 ## Overview
 
 This project builds an interactive health analytics dashboard that brings together **Fitbit public data** and **personal WHOOP data** using **MongoDB Atlas, Python, and Streamlit**. It explores activity, sleep, recovery, and physiological trends while demonstrating how a document-oriented database can accommodate wearable datasets with different structures.
