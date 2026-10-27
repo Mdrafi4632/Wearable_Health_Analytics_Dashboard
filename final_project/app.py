@@ -236,134 +236,64 @@ with tabs[1]:
 
 # TAB 2: Fitbit Sleep
 with tabs[2]:
-    st.markdown("<h1 style='text-align:center;'>Fitbit Sleep Insights</h1>", unsafe_allow_html=True)
+    fs = sleep_day.copy()
+    fs["Date"] = pd.to_datetime(fs["SleepDay"], errors="coerce")
+    fs["Asleep"] = pd.to_numeric(fs["TotalMinutesAsleep"], errors="coerce") / 60
+    fs["InBed"] = pd.to_numeric(fs["TotalTimeInBed"], errors="coerce") / 60
+    fs = fs.dropna(subset=["Date", "Asleep"]).drop_duplicates(["Id", "Date"], keep="last").sort_values("Date")
+    fs["Efficiency"] = fs["Asleep"] / fs["InBed"] * 100
+    fs["DayType"] = fs["Date"].dt.weekday.map(lambda d: "Weekend" if d >= 5 else "Weekday")
+    users = sorted(fs["Id"].unique())
 
-    # User Selector
-    user_ids = sorted(sleep_day["Id"].unique())
-    selected_user = st.selectbox("Select User ID:", user_ids, key="sleep_user")
+    st.markdown(
+        f'<div class="ptitle">Fitbit <span>Sleep</span></div>'
+        f'<p class="lede">{len(users)} users with sleep logs &middot; {fs.Date.min():%b %d} to {fs.Date.max():%b %d, %Y}. '
+        f'Pick a user to see their nights.</p>', unsafe_allow_html=True)
 
-    # Filter for selected user
-    user_sleep = sleep_day[sleep_day["Id"] == selected_user].copy()
+    pick, _ = st.columns([1, 3])
+    user = pick.selectbox("User ID", users, key="sleep_user")
+    u = fs[fs["Id"] == user]
+    best = u.loc[u["Asleep"].idxmax()]
 
-    if user_sleep.empty:
-        st.warning("No sleep data available for this user.")
-        st.stop()
+    stat_row([
+        (f"{u.Asleep.mean():.1f}", "h", "Avg sleep"),
+        (f"{u.InBed.mean():.1f}", "h", "Avg time in bed"),
+        (f"{u.Efficiency.mean():.0f}", "%", "Sleep efficiency"),
+        (f"{(u.Asleep >= 7).mean() * 100:.0f}", "%", "Nights over 7h"),
+        (f"{best.Asleep:.1f}", "h", f"Best night &middot; {best.Date:%b %d}"),
+        (f"{len(u)}", "", "Nights logged"),
+    ])
 
-    # Convert Date column
-    user_sleep["Date"] = pd.to_datetime(user_sleep["SleepDay"]).dt.date
+    # Nightly sleep vs time in bed
+    section("Nightly sleep &middot; <span style='color:#C6F432'>asleep</span> vs in bed &middot; dashed line = 7h")
+    x = alt.X("Date:T", title=None, axis=alt.Axis(format="%b %d", grid=False))
+    tip = [alt.Tooltip("Date:T", format="%a, %b %d"), alt.Tooltip("Asleep:Q", format=".1f", title="Asleep (h)"),
+           alt.Tooltip("InBed:Q", format=".1f", title="In bed (h)")]
+    bed = alt.Chart(u).mark_bar(color="#4A525E", cornerRadiusTopLeft=3, cornerRadiusTopRight=3).encode(x=x, y=alt.Y("InBed:Q", title=None), tooltip=tip)
+    slept = alt.Chart(u).mark_bar(color=ACCENT, cornerRadiusTopLeft=3, cornerRadiusTopRight=3).encode(x=x, y="Asleep:Q", tooltip=tip)
+    rule = alt.Chart(pd.DataFrame({"y": [7]})).mark_rule(color=MUTED, strokeDash=[4, 4]).encode(y="y:Q")
+    show(bed + slept + rule)
 
-    st.subheader(f"Sleep Data for User: {selected_user}")
-    #st.dataframe(user_sleep)
-    st.markdown("<br>", unsafe_allow_html=True)
+    left, right = st.columns(2, gap="large")
 
-    # Sleep Duration Graph
-    st.subheader("Sleep Duration Over Time")
-    duration_chart = (
-        alt.Chart(user_sleep)
-        .mark_line(color="#4BA3C3")
-        .encode(
-            x=alt.X("Date:T", title="Date"),
-            y=alt.Y("TotalMinutesAsleep:Q", title="Minutes Asleep"),
-            tooltip=["Date", "TotalMinutesAsleep"]
-        )
-        .properties(width=800, height=350)
-    )
-    st.altair_chart(duration_chart, use_container_width=True)
-    st.markdown("<br>", unsafe_allow_html=True)
+    # Weekday vs weekend
+    section("Weekday vs weekend &middot; avg hours", left)
+    wk_df = u.groupby("DayType", as_index=False)["Asleep"].mean()
+    y = alt.Y("DayType:N", title=None, sort=["Weekday", "Weekend"], axis=alt.Axis(labelFontSize=13, domain=False, ticks=False))
+    hbar = alt.Chart(wk_df).mark_bar(color=ACCENT, cornerRadiusTopRight=3, cornerRadiusBottomRight=3, height=32).encode(
+        x=alt.X("Asleep:Q", title=None, axis=None), y=y, tooltip=["DayType", alt.Tooltip("Asleep:Q", format=".1f")])
+    vals = alt.Chart(wk_df).mark_text(align="left", dx=6, color="#F2F4F7", font="Inter", fontSize=13).encode(
+        x="Asleep:Q", y=y, text=alt.Text("Asleep:Q", format=".1f"))
+    show(hbar + vals, 200, left)
 
-    # Summary
-    st.subheader("Summary of the Selected User")
-    avg_sleep = user_sleep["TotalMinutesAsleep"].mean()
-    total_sleep = user_sleep["TotalMinutesAsleep"].sum()
-
-    col1, col2 = st.columns(2)
-    col1.metric("Average Sleep (mins)", f"{avg_sleep:.0f}")
-    col2.metric("Total Sleep (hrs)", f"{total_sleep/60:.1f}")
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    best = user_sleep.loc[user_sleep["TotalMinutesAsleep"].idxmax()]
-    worst = user_sleep.loc[user_sleep["TotalMinutesAsleep"].idxmin()]
-
-    col3, col4 = st.columns(2)
-    col3.metric("Best Sleep (mins)", int(best["TotalMinutesAsleep"]), help=f"Date: {best['Date']}")
-    col4.metric("Worst Sleep (mins)", int(worst["TotalMinutesAsleep"]), help=f"Date: {worst['Date']}")
-
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    # Weekday vs Weekend Sleep
-    st.subheader("Weekday vs Weekend Sleep")
-
-    # Convert date
-    user_sleep["Date"] = pd.to_datetime(user_sleep["Date"])
-
-    # Create Weekday/Weekend label instead of True/False
-    user_sleep["DayType"] = user_sleep["Date"].dt.weekday.map(
-        lambda x: "Weekend" if x >= 5 else "Weekday"
-    )
-
-    # Group by DayType
-    grouped = user_sleep.groupby("DayType")["TotalMinutesAsleep"].mean().reset_index()
-
-    # Bar chart
-    bar_chart = (
-        alt.Chart(grouped)
-        .mark_bar()
-        .encode(
-            x=alt.X("DayType:N", title="Day Type"),
-            y=alt.Y("TotalMinutesAsleep:Q", title="Avg Sleep (mins)"),
-            color=alt.Color("DayType:N", scale=alt.Scale(
-                domain=["Weekday", "Weekend"],
-                range=["#4BA3C3", "#1F77B4"]  # nicer colors
-            )),
-            tooltip=["DayType", "TotalMinutesAsleep"]
-        )
-        .properties(width=600, height=400)
-    )
-
-    st.altair_chart(bar_chart, use_container_width=True)
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    # Sleep Efficiency
-    st.subheader("Sleep Efficiency")
-
-    if "TotalTimeInBed" in user_sleep.columns:
-        user_sleep["SleepEfficiency"] = (
-            user_sleep["TotalMinutesAsleep"] / user_sleep["TotalTimeInBed"]
-        ) * 100
-
-        eff_chart = (
-            alt.Chart(user_sleep)
-            .mark_line(color="#4BA3C3")
-            .encode(
-                x=alt.X("Date:T", title="Date"),
-                y=alt.Y("SleepEfficiency:Q", title="Sleep Efficiency (%)"),
-                tooltip=["Date", "TotalMinutesAsleep", "TotalTimeInBed", "SleepEfficiency"]
-            )
-            .properties(width=900, height=400)
-        )
-        st.altair_chart(eff_chart, use_container_width=True)
-    else:
-        st.warning("The column 'TotalTimeInBed' is missing — cannot calculate sleep efficiency.")
-
-
-    # Sleep Distribution
-    st.subheader("Sleep Duration")
-
-    hist = (
-        alt.Chart(user_sleep)
-        .mark_bar(color="#85C1E9")
-        .encode(
-            x=alt.X("TotalMinutesAsleep:Q", bin=alt.Bin(maxbins=12), title="Minutes Asleep"),
-            y=alt.Y(
-                "count()",
-                title="Count of Records",
-                axis=alt.Axis(format='d')
-            ),
-            tooltip=["count()"]
-        )
-        .properties(width=800, height=400)
-    )
-    st.altair_chart(hist, use_container_width=True)
+    # Efficiency over time
+    section("Sleep efficiency &middot; asleep / in bed", right)
+    eff = alt.Chart(u).encode(
+        x=alt.X("Date:T", title=None, axis=alt.Axis(format="%b %d", grid=False)),
+        y=alt.Y("Efficiency:Q", title=None, scale=alt.Scale(zero=False), axis=alt.Axis(format=".0f")))
+    show(eff.mark_line(color=ACCENT, strokeWidth=2) +
+         eff.mark_circle(color=ACCENT, size=50).encode(tooltip=[alt.Tooltip("Date:T", format="%b %d"), alt.Tooltip("Efficiency:Q", format=".0f", title="Efficiency %")]),
+         200, right)
 
 
 
