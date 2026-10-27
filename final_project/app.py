@@ -82,7 +82,10 @@ st.markdown("""<style>
 .ptitle span{color:#C6F432}
 .cmp{font:400 13px/1.5 'Inter';color:#8A9099;margin-top:10px}.cmp b{color:#C6F432;font-weight:500}
 .take{border-left:2px solid #C6F432;padding:4px 0 4px 16px;margin:0 0 14px;color:#C9CED6;font:400 15px/1.6 'Inter'}
-.stTabs [data-baseweb="tab"] p{font:600 15px 'Barlow Condensed','Arial Narrow',sans-serif;letter-spacing:.12em;text-transform:uppercase}
+.stTabs [role="tablist"]{justify-content:safe center}
+.stTabs .react-aria-SelectionIndicator,.stTabs [data-baseweb="tab-highlight"]{background-color:#C6F432 !important}
+.stTabs [aria-selected="true"] p{color:#C6F432}
+.stTabs [role="tab"] p{font:600 15px 'Barlow Condensed','Arial Narrow',sans-serif;letter-spacing:.12em;text-transform:uppercase}
 </style>""", unsafe_allow_html=True)
 
 def stat_row(items):
@@ -118,7 +121,7 @@ def show(chart, h=280, where=st):
 
 
 st.markdown(
-    f'<div class="topbar"><div><span class="dot"></span><b>Rafi</b> &nbsp;/&nbsp; Health Analytics</div>'
+    f'<div class="topbar"><div><span class="dot"></span><b>Rafi</b></div>'
     f'<div>Source: {data_source}</div></div>',
     unsafe_allow_html=True,
 )
